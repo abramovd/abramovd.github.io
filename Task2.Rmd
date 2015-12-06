@@ -1,0 +1,194 @@
+---
+title: "Анализ посещаемости Яндекс.Поиска по данным LiveInternet"
+output: html_document
+header-includes:
+- \usepackage[russian]{babel}
+---
+Для начала найдем статистику посещаемости **Яндекс.Поиска** на сайте **LiveInternet**. Собственно, статистику по переходам на другие сайты из поисковых систем можно найти по ссылке http://www.liveinternet.ru/stat/ru/searches.html. 
+
+Под посещаемостью Яндекс.Поиска будем подразумевать количество переходов из него на другие сайты. Последние доступные данные по среднесуточной посещаемости: 10 мая - 3 декабря 2015. Также будем анализировать понедельные данные о суммарном количестве переходов. Скачаем их в формате **.csv**. 
+Для анализа будем использовать язык **R** и **R Studio**.
+
+## Анализ
+
+Загрузим данные в R Studio:
+
+```{r}
+# per day
+search <- read.csv("searches.csv", header = T, sep = ";")
+head(search)
+
+# week summary
+search.week <- read.csv("searches_week.csv", header = T, sep = ";")
+head(search.week)
+```
+
+Построим графики:
+```{r}
+par(mfrow = c(1, 2))
+search$Date <- as.Date(search$Date)
+search.week$Date <- as.Date(search.week$Date)
+plot(search$Date, search$Yandex / 10^6, type = "l", xlab = "Time", ylab = "Million of clicks", main = "Traffic Avg. Per Day")
+grid()
+plot(search.week$Date, search.week$Yandex / 10^6, type = "l", xlab = "Time", ylab = "Million of clicks", main = "Traffic Summarized Weekly")
+grid()
+```
+
+Как видно из графика, с 24 мая количество переходов из Яндекс.Поиска постепенно уменьшалось (со скачками), а, начиная со второй недели августа, наоборот, начало существенно расти и к последней рассматриваемой неделе составила 122 млн. 245 тыс. переходов, что составляет 50% среди всех поисковиков. Наименьшее среднесуточное количество переходов, по данным LiveInternet, было зафиксировано во вторую неделю августа - 90 млн. 872 тыс. переходов. 
+
+Что касается общего количество переходов за неделю, то здесь ситуация подобна среднесуточной статистики: с 9 по 15 августа был достигнут минимум за весь рассматриваемый период - 636 млн. 107 тыс. переходов, а затем снова начался быстрый рост и к концу ноября количество переходов достигло 809 млн. 225 тыс. 
+
+## Закономерности
+
+Для того, чтобы не искать закономерности и аномалии вручную по графику, попробуем автоматизировать данный процесс.
+
+Одним из нестандартных, но, в то же время, довольно эффективных способов поиска и визуализации **закономерностей** являются __регулярные выражения__.
+
+Переведем наши данные в последовательность нулей и единиц, где 1 означает, что количество переходов в данную неделю возросло, а 0 - нет.
+
+```{r}
+delta <- (sign(diff(search$Yandex)) == 1) + 0
+delta2 <- (sign(diff(search.week$Yandex)) == 1) + 0
+head(delta)
+head(delta2)
+```
+
+Регулярные выражения работают со строками, а не векторами, так что сделаем из данного бинарного вектора одну строку:
+
+```{r}
+delta.str <- do.call(paste0, as.list(c(delta)))
+delta.str
+delta2.str <- do.call(paste0, as.list(c(delta2)))
+delta2.str
+```
+
+Будем считать временной интервал положительной зависимостью, если количество переходов возрастало хотя бы две недели подряд, а отрицательной - если, наоборот, уменьшалось.
+
+```{r}
+matches.rec <- gregexpr("00+", delta.str, perl = T)[[1]]
+matches2.rec <- gregexpr("00+", delta2.str, perl = T)[[1]]
+matches.inc <-  gregexpr("11+", delta.str, perl = T)[[1]]
+matches2.inc <-  gregexpr("11+", delta2.str, perl = T)[[1]]
+m.length.rec = attr(matches.rec,"match.length")
+m.length.rec2 = attr(matches2.rec,"match.length")
+m.length.inc = attr(matches.inc,"match.length")
+m.length.inc2 = attr(matches2.inc,"match.length")
+
+recessions <- sapply(1:length(matches.rec), function(ind) matches.rec[ind]+0:(m.length.rec[ind]))
+increases <- sapply(1:length(matches.inc), function(ind) matches.inc[ind]+0:(m.length.inc[ind]))
+recessions2 <- sapply(1:length(matches2.rec), function(ind) matches2.rec[ind]+0:(m.length.rec2[ind]))
+increases2 <- sapply(1:length(matches2.inc), function(ind) matches2.inc[ind]+0:(m.length.inc2[ind]))
+
+hl = function(inds) lines(search$Date[inds], search$Yandex[inds] / 10^6, col = "red", lwd = 3)
+hl2 = function(inds) lines(search$Date[inds], search$Yandex[inds] / 10^6, col = "green", lwd = 3)
+wl = function(inds) lines(search.week$Date[inds], search.week$Yandex[inds] / 10^6, col = "red", lwd = 3)
+wl2 = function(inds) lines(search.week$Date[inds], search.week$Yandex[inds] / 10^6, col = "green", lwd = 3)
+
+par(mfrow = c(1, 2))
+plot(search$Date, search$Yandex  / 10^6, type = "l", xlab = "Time", ylab = "Million of clicks", main = "Traffic Avg. Per Day")
+tmp = sapply(recessions, hl)  #Used for side-effects only
+tmp2 = sapply(increases, hl2)  #Used for side-effects only
+plot(search.week$Date, search.week$Yandex / 10^6, type = "l", xlab = "Time", ylab = "Million of clicks", main = "Traffic Summarized Weekly")
+tmp = sapply(recessions2, wl)  #Used for side-effects only
+tmp2 = sapply(increases2, wl2)  #Used for side-effects only
+
+```
+
+Данных слишком мало для того, чтобы заметить какие-то сезонные закономерности.
+
+В период c конца мая по начало августа наблюдался существенный спад среднесуточного количества переходов из Яндекс.Поиска с 105 млн. 373 тыс. до 90 млн. 872 тыс. переходов. Однако, во время этого спада наблюдались некоторые закономерности, так, к примеру, с 14 по 21 июня и с 5 по 12 июля наблюдался рост числа переходов примерно на 3,5 миллиона, по сравнению с показателями предшествующих недель.
+
+Со второй недели августа начался рост среднесуточных переходов на другие сайты из поиска Яндекса. С начала августа по середину сентября среднесуточное количество переходов увеличилось на 11 млн (до 101 млн.), с 13 по 20 сентября среднесуточные переходы осталавались примерно на одном уровне, а затем за такой же в период в 1,5 месяца посещаемость выростла на 14 млн. (до 115 млн.). В конце октября - начале ноября и конце ноября наблюдались небольшие рецессии, однако за последний доступный период произошел значительный рост среднесуточных переходов до 122 млн 245 тыс.
+
+Что касается общего числа переходов за неделю из Яндекс.Поиска на другие сайты, то здесь ситуация аналогичная среднесуточному случаю. В период сильного спада (c конца мая по начало августа) еженедельное количество переходов уменьшилось с 737 млн. 612 тыс. до 636 млн. 107 тыс. переходов (13.76%). А затем, несмотря на некоторые колебания, аналогичные тем, что изложены выше для среднесуточного случая, наблюдался существенный рост посещаемости и к концу рассматриваемого периода количество переходов по сравнению с началом августа выросло на 27.2% до 808 млн. 225 тыс., достигнув максимума в 816 млн 859 тыс. перехода в третью неделю ноября.
+
+## Аномалии
+
+К сожалению, говорить об аномалиях, имея так мало данных, довольно сложно. 
+
+Для автоматического определения аномалий можно воспользовать новой библиотекой от разработчиков **Twitter** -  **Anomaly Detection**. 
+
+```{r}
+library(AnomalyDetection)
+res = AnomalyDetectionVec(search[,2], period=2, alpha = 0.7, direction='both', only_last=FALSE, plot=TRUE)
+res$plot
+res = AnomalyDetectionVec(search.week[,2], period=2, alpha = 1.2, direction='both', only_last=FALSE, plot=TRUE)
+res$plot
+```
+
+Как видим, алгоритм помог нам выделить некоторые аномалии в конце рассматриваемого периода, однако его уверенность в них довольно низка, так что не стоит верить, что они точно являются аномалиями.
+
+Собственно, еще можно построить линию треда для каждого из рядов:
+
+```{r}
+par(mfrow = c(1, 2))
+plot(search$Date, search$Yandex / 10^6, type = "l", xlab = "Time", ylab = "Million of clicks", main = "Traffic Avg. Per Day")
+grid()
+img <- filter(search$Yandex / 10^6, filter = rep(1/5, 5))
+lines(search$Date, img, col = "red")
+anom.pos <- c() 
+anom.neg <- c()
+idx.pos <- c()
+idx.neg <- c()
+for (i in 1:length(img)) {
+        if (!is.na(img[i]) && abs(img[i] - (search$Yandex[i] / 10^6)) > 1) {
+            if (img[i] < search$Yandex[i] / 10^6) {
+                idx.pos <- c(idx.pos, i)
+                anom.pos <- c(anom.pos, search$Yandex[i] / 10^6)
+            } else {
+                idx.neg <- c(idx.neg, i)
+                anom.neg <- c(anom.neg, search$Yandex[i] / 10^6)
+            }
+        }
+}
+points(search$Date[idx.pos], anom.pos, col = "green")
+points(search$Date[idx.neg], anom.neg, col = "blue")
+    
+plot(search.week$Date, search.week$Yandex / 10^6, type = "l", xlab = "Time", ylab = "Million of clicks", main = "Traffic Summarized Weekly")
+grid()
+img <- filter(search.week$Yandex / 10^6, filter = rep(1/5, 5))
+lines(search.week$Date, img, col = "red")
+anom.pos.week <- c() 
+anom.neg.week <- c()
+idx.pos.week <- c()
+idx.neg.week <- c()
+for (i in 1:length(img)) {
+        if (!is.na(img[i]) && abs(img[i] - (search.week$Yandex[i] / 10^6)) > 10) {
+            if (img[i] < search.week$Yandex[i] / 10^6) {
+                idx.pos.week <- c(idx.pos.week, i)
+                anom.pos.week <- c(anom.pos.week, search.week$Yandex[i] / 10^6)
+            }
+            else {
+                idx.neg.week <- c(idx.neg.week, i)
+                anom.neg.week <- c(anom.neg.week, search.week$Yandex[i] / 10^6)
+            }
+        }
+}
+points(search.week$Date[idx.pos.week], anom.pos.week, col = "green")
+points(search.week$Date[idx.neg.week], anom.neg.week, col = "blue")
+```
+
+В качестве критерия определения аномалий было взять отклонение от линии тренда более, чем на 1 млн. переходов для среднесуточного и 10 млн. переходов для общего количества за неделю, что, возможно, довольно маленькие критерии, но все же.
+
+Если говорить об аномалиях, как о значениях, которым слишком сильно отличаются от заданной линии тренда, то можно выделить следующие типы аномалий:
+
+* Положительные - если значие больше ожидаемого (на какую-то константу)
+* Отрицательные - если значение меньше ожидаемого (на какую-то константу)
+* Существенные - если разница по модулю между реальным и ожидаемым знечениям больше константы
+* Не существенные - если разница по модулю между реальным и ожидаемым знечениям меньше константы
+
+К положительным аномалиям относятся следующие недели (указаны числа, с которых они начинаются):
+```{r}
+search$Date[idx.pos]
+search.week$Date[idx.pos.week]
+```
+
+К отрицательным:
+```{r}
+search$Date[idx.neg]
+search.week$Date[idx.neg.week]
+```
+
+Как в среднесуточных, так и в суммарных за неделю данных положительные аномалии совпадают, а отрицательные аномалии в неделях, начинающихся 27 сентября и 18 октября были определены в среднесуточном случае, но не были определены в случае суммарных значений посещаемости за неделю. Это вряд ли говорит о какой-то интересной зависимости, скорее - о не совсем правильном подборе константы.
+
+К наиболе существенным аномалиям можно отнести три отрицательных аномалии, определнных с мая по начало августа и одну положительнуюю - последняя неделя рассматриваемого периода, когда произошел неожиданный скачок вверх.
